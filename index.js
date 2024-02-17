@@ -1,19 +1,23 @@
 const express = require('express');
 const app = express();
 const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser')
 const port = process.env.PORT || 5000;
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 
-// digital-wares-hub
-// Dj8MhGfgrKGWqsn2
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:5174' ],
+  credentials: true
+}));
 
-app.use(cors());
+
 app.use(express.json());
 require('dotenv').config();
+app.use(cookieParser());
 
 const uri = `mongodb+srv://${process.env.USER_NAME}:${process.env.PASSWORD}@cluster0.tpodeld.mongodb.net/?retryWrites=true&w=majority`;
-// const uri = "mongodb+srv://digital-wares-hub:Dj8MhGfgrKGWqsn2@cluster0.tpodeld.mongodb.net/?retryWrites=true&w=majority";
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
@@ -24,29 +28,46 @@ const client = new MongoClient(uri, {
   }
 });
 
+const logger = (req, res, next) => {
+  console.log('log: info', req.method, req.url);
+  next();
+}
+
+const varifyToken = (req, res, next) => {
+  const token = req?.cookies?.token;
+
+  if(!token){
+    return res.status(401).send({message: 'unauthorized access'})
+  }
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (error, decoded) => {
+    if(error){
+      return res.status(401).send({message: 'unauthorized access'})
+    }
+    req.user = decoded;
+    next()
+  })
+}
+
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
 
     const usersCollaction = client.db("DWUsersDB").collection('regiter');
     const brandCollaction = client.db("DWUsersDB").collection('addBrand')
     const productCollaction = client.db("DWUsersDB").collection('addProduct')
     const silactedProduct = client.db("DWUsersDB").collection('silactedProduct')
+    const orderCollaction = client.db("DWUsersDB").collection('orderData')
 
 
-    app.get('/addBrand', async(req, res) => {
+    app.get('/addBrand', logger, async(req, res) => {
       const brand = brandCollaction.find();
+
+      console.log('token', req?.cookies?.token);
       const result = await brand.toArray();
 
       res.send(result)
     })
-    // app.get('/addProduct', async(req, res) => {
-    //   const products = productCollaction.find();
-    //   const result = await products.toArray();
-
-    //   res.send(result)
-    // })
 
     app.get('/products/:brd', async(req, res) => {
       const brand = req.params.brd;
@@ -74,6 +95,26 @@ async function run() {
       res.send(result)
     })
 
+    app.get('/getOrders', async(req, res) => {
+      const orderList = orderCollaction.find();
+      const result = await orderList.toArray();
+
+      res.send(result)
+    })
+
+    app.post( '/jwt', logger, async(req, res) => {
+      const user = req.body;
+      console.log('user for token',user);
+      const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {expiresIn: '2h'})
+
+      res
+      .cookie('token', token, {
+        httpOnly: true,
+        secure:false,
+      })
+      .send({success: true})
+    })
+
     app.post( '/regiter', async(req, res) => {
         const newUser = req.body;
         console.log(newUser);
@@ -82,9 +123,8 @@ async function run() {
         res.send(newUser)
     })
 
-    app.post( '/addProduct', async(req, res) => {
+    app.post( '/addProduct', logger, async(req, res) => {
         const newProduct = req.body;
-        console.log(newProduct);
 
         const result = await productCollaction.insertOne(newProduct)
         res.send(result)
@@ -103,6 +143,14 @@ async function run() {
       console.log(postSilactedProduct);
 
       const result = await silactedProduct.insertOne(postSilactedProduct);
+      res.send(result)
+    })
+
+    app.post('/orderNaw', async(req, res) => {
+      const orders = req.body;
+      console.log(orders);
+
+      const result = await orderCollaction.insertOne(orders);
       res.send(result)
     })
 
